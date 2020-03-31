@@ -101,17 +101,22 @@ class Experiment(object):
             set and the validation set. (default: False)
     """
 
-    def __init__(self, generator, discriminator, device, criterion,
-                 optimizer_gen, optimizer_dis, d_stats_manager, g_stats_manager, output_dir=None):
+    def __init__(self, model, device, criterion,
+                 optimizer, stats_manager, output_dir=None):
 
         # Define data loaders
-        dataloader = get_loader(args['file_path_csv'], args['transforms'],
+        train_loader = get_loader(args["root"],args['train_csv_path'], args['transforms'],
                                 args['batch_size'], args['num_workers'], shuffle=True)
+        # Define data loaders
+        val_loader = get_loader(args["root"],args['test_csv_path'], args['transforms'],
+                                args['batch_size'], args['num_workers'], shuffle=True)
+        
+        
 
         # Initialize history
         history = {
             'losses': [],
-            'best_g_loss': 10000.0,
+            'best_loss': 10000.0,
             'best_epoch': -1
         }
 
@@ -180,15 +185,11 @@ class Experiment(object):
         # The following loops are used to fix a bug that was
         # discussed here: https://github.com/pytorch/pytorch/issues/2830
         # (it is supposed to be fixed in recent PyTorch version)
-        for state in self.optimizer_gen.state.values():
+        for state in self.optimizer.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(self.device)
 
-        for state in self.optimizer_dis.state.values():
-            for k, v in state.items():
-                if isinstance(v, torch.Tensor):
-                    state[k] = v.to(self.device)
 
     def save(self):
         """Saves the experiment on disk, i.e, create/update the last checkpoint."""
@@ -249,6 +250,7 @@ class Experiment(object):
         self.stats_manager.init()
         start_epoch = self.epoch
         device = self.device
+        print(self.history)
         min_eloss = self.history['best_loss']
 
         print(f"Start/Continue training from epoch {start_epoch}")
@@ -257,10 +259,12 @@ class Experiment(object):
         for epoch in range(start_epoch, num_epochs):
             s = time()
             self.stats_manager.init()
-            for idx, (images) in enumerate(self.dataloader):
+            for idx, (images, labels) in enumerate(self.train_loader):
+                print(idx)
                 if(list(images.size())[0] == 1):
                     continue
                 images = images.to(device)
+                labels = labels.to(device)
 
                 self.model.zero_grad()
 
@@ -275,34 +279,74 @@ class Experiment(object):
                 with torch.no_grad():
                     self.stats_manager.accumulate(
                         loss.item(), list(images.size())[0])
+            #print('here')
+            print('Time taken for train : ', time()-s)    
+            if not self.perform_validation_during_training:
+                self.history.append(self.stats_manager.summarize())
+            else:
+                #train_loss = self.stats_manager.summarize() #don't change the order
+                train_loss = self.stats_manager.summarize()
+                start = time()
+                val_loss, perplexity = self.evaluate(mode='val', generate=False) #don't change the order
+                end = time()
+                print('Time taken for validation : ', end-start)
+                print('Val perplexity at ', epoch, ' : ' , perplexity)
+                print('Val Loss at ', epoch, ' : ' , val_loss)
+                print('Train Loss at ', epoch, ' : ' , train_loss)
+                self.history['losses'].append((train_loss, val_loss))
+                self.history['val_perplexity'].append(perplexity)
+                if(val_loss < min_val_loss):
+                    min_val_loss = val_loss
+                    self.save_bestmodel()
+                    self.history['best_val'] = min_val_loss
+                    self.history['best_epoch'] = epoch
+                    print('Best model saved with Val loss', min_val_loss)
+#                     start = time()
+#                     test_loss = self.evaluate(mode='test', generate=True)
+#                     end = time()
+#                     print('Time taken for test : ', end-start)
+#                     self.history['test_perplexity'].append(perplexity)
+                with open(os.path.join(self.output_dir, 'history.json'), 'w') as f:
+                    json.dump(self.history, f)
 
-            print(f'Time taken for train : {time()-s}')
-
-            eloss = self.stats_manager.summarize()
-
-            print(f'epoch : {epoch}, model training loss : {eloss : 0.6f}')
-            self.history['losses'].append(eloss)
-
-            if(eloss < min_eloss):
-                min_eloss = eloss
-                self.save_bestmodel()
-                self.history['best_loss'] = min_eloss
-                self.history['best_epoch'] = epoch
-                print('Best model saved with generator loss', min_eloss)
-
-            with open(os.path.join(self.output_dir, 'history.json'), 'w') as f:
-                json.dump(self.history, f)
 
             self.save()
             self.plot()
+            # if plot is not None:
+            #     plot(self)
+        print("Finish training for {} epochs".format(num_epochs))  
 
-        print(f"Finished training for {num_epochs} epochs")
 
-    def eval(self, num):
 
-        self.model.eval()
+    def evaluate(self, mode = 'val', generate = False):
+        """Evaluates the experiment, i.e., forward propagates the validation set
+        through the network and returns the statistics computed by the stats
+        manager.
+        """
+        self.stats_manager.init()
+        self.encoder.eval()
+        self.decoder.eval()
         device = self.device
-        z = torch.randn(num, args["nz"], 1, 1, device=device)
-        images = self.generator(z)
+        loaderToRun = self.val_loader
+#         if(mode == 'test'):
+#             loaderToRun = self.test_loader
+        self.generatedCaptions = []
+        with torch.no_grad():
+            for idx, (images, labels) in enumerate(loaderToRun):
+#                 if(idx > 50): #only for testing comment out for anything else
+#                     break
+                
+                images = images.to(device)
+                labels = labels.to(device)
+                
+                pred = self.model(images)
+                loss = self.criterion(pred, labels) ##Need to figure out
+              
 
-        return images, z.squeeze()
+                self.stats_manager.accumulate(loss.item(), list(images.size())[0])
+               
+        self.encoder.train()
+        self.decoder.train()
+
+
+        return self.stats_manager.summarize()

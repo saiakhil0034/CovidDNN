@@ -31,7 +31,7 @@ criterion = args['loss_criterion']
 
 params = list(model.parameters())
 
-optimizer = torch.optim.Adam(params, lr=args['learning_rate'], betas=(args['beta'], 0.999))
+optimizer = torch.optim.SGD(params, lr=args['learning_rate'])#, betas=(args['beta'], 0.999))
 
 stats_manager= nt.StatsManager()
 

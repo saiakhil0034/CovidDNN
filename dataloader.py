@@ -6,9 +6,11 @@ import torch.utils.data as data
 import os
 import pickle
 import numpy as np
+import pandas as pd
 import nltk
 from PIL import Image
 
+label_dict = {'normal' : 0,'pneumonia' :1,'COVID-19':2}
 
 class CovidDataset(data.Dataset):
     """Custom Covid Dataset compatible with torch.utils.data.DataLoader."""
@@ -37,13 +39,13 @@ class CovidDataset(data.Dataset):
             image = self.transform(image)
 
         
-        return image, target
+        return image, label_dict.get(label,3)
 
     def __len__(self):
-        return len(self.ids)
+        return self.data.shape[0]
 
 
-def get_loader(root, file_path, transform, batch_size, shuffle, num_workers):
+def get_loader(root, file_path, transform, batch_size, num_workers, shuffle):
     """Returns torch.utils.data.DataLoader for custom covid dataset."""
     covid = CovidDataset(root=root,
                         file_path=file_path,

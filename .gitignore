@@ -131,5 +131,6 @@ dmypy.json
 #datafiles
 data
 data/
-images
-rsna*
+req_files/images
+req_files/rsna*
+results

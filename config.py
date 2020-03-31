@@ -2,10 +2,13 @@ import torch.nn as nn
 import pickle
 
 from torchvision import transforms
-from models import covidDNN
+from models.architectures import CovidDNN
 
 baseDataPath = './data'
-data_path = f"{baseDataPath}/file_names_jules.csv"
+
+train_csv_path = "req_files/train_split_v2.txt"
+test_csv_path = "req_files/test_split_v2.txt"
+
 
 size = (224, 224)
 
@@ -14,8 +17,12 @@ transform = transforms.Compose([transforms.Resize(size), transforms.RandomHorizo
 
 
 args = {
-    'file_path_csv': data_path,
-
+    'root' : baseDataPath,
+    
+    'train_csv_path': train_csv_path,
+    
+    'test_csv_path': test_csv_path,
+    
     'epochs': 500,
 
     'batch_size': 2,
